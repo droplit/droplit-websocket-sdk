@@ -11,5 +11,9 @@
   "license": "ISC",
   "dependencies": {
     "engine.io-client": "^1.6.9"
+  },
+  "repository":{
+    "type": "git",
+    "url": "https://github.com/droplit/droplit-websocket-sdk"
   }
 }
