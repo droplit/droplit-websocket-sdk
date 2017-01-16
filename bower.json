@@ -1,0 +1,22 @@
+{
+  "name": "droplit-websocket-sdk",
+  "authors": [
+    "Chris Woodle <chris@droplit.io>",
+    "Jenks, Bryan <bryan@droplit.io>"
+  ],
+  "description": "Enable real-time notifications from the droplit.io cloud!",
+  "main": "./bin/droplit-websocket-sdk.js",
+  "license": "ISC",
+  "homepage": "http://www.droplit.io",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "lib",
+    "src",
+    "test",
+    "index.ts",
+    "indes.js",
+    "package.json",
+    "PUBLISH_STEPS.md"
+  ]
+}

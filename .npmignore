@@ -1,0 +1,5 @@
+node_modules
+bin
+bower.json
+test
+PUBLISH_STEPS.md
