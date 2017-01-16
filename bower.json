@@ -5,7 +5,7 @@
     "Jenks, Bryan <bryan@droplit.io>"
   ],
   "description": "Enable real-time notifications from the droplit.io cloud!",
-  "main": "./bin/droplit-websocket-sdk.js",
+  "main": "./dist/droplit-websocket-sdk.js",
   "license": "ISC",
   "homepage": "http://www.droplit.io",
   "ignore": [
