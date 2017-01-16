@@ -1,6 +1,6 @@
 {
   "name": "droplit-websocket-sdk",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Enable real-time notifications from the droplit.io cloud!",
   "main": "index.js",
   "author": "Droplit, Inc.",
