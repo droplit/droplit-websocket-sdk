@@ -37,7 +37,7 @@ npm install droplit-socket-sdk --save
 In your application:
 
 ```
-var droplitSDK = require(droplit-socket-sdk);
+var droplitSDK = require(droplit-websocket-sdk);
 var droplitSocket = new droplitSDK.DroplitClient();
 ```
 
