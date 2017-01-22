@@ -310,10 +310,190 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return arg === void 0;
       }
     }, {}], 3: [function (require, module, exports) {
+      // shim for using process in browser
+      var process = module.exports = {};
+
+      // cached from whatever global is present so that test runners that stub it
+      // don't break things.  But we need to wrap it in a try catch in case it is
+      // wrapped in strict mode code which doesn't define any globals.  It's inside a
+      // function because try/catches deoptimize in certain engines.
+
+      var cachedSetTimeout;
+      var cachedClearTimeout;
+
+      function defaultSetTimout() {
+        throw new Error('setTimeout has not been defined');
+      }
+      function defaultClearTimeout() {
+        throw new Error('clearTimeout has not been defined');
+      }
+      (function () {
+        try {
+          if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+          } else {
+            cachedSetTimeout = defaultSetTimout;
+          }
+        } catch (e) {
+          cachedSetTimeout = defaultSetTimout;
+        }
+        try {
+          if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+          } else {
+            cachedClearTimeout = defaultClearTimeout;
+          }
+        } catch (e) {
+          cachedClearTimeout = defaultClearTimeout;
+        }
+      })();
+      function runTimeout(fun) {
+        if (cachedSetTimeout === setTimeout) {
+          //normal enviroments in sane situations
+          return setTimeout(fun, 0);
+        }
+        // if setTimeout wasn't available but was latter defined
+        if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+          cachedSetTimeout = setTimeout;
+          return setTimeout(fun, 0);
+        }
+        try {
+          // when when somebody has screwed with setTimeout but no I.E. maddness
+          return cachedSetTimeout(fun, 0);
+        } catch (e) {
+          try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+          } catch (e) {
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+          }
+        }
+      }
+      function runClearTimeout(marker) {
+        if (cachedClearTimeout === clearTimeout) {
+          //normal enviroments in sane situations
+          return clearTimeout(marker);
+        }
+        // if clearTimeout wasn't available but was latter defined
+        if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+          cachedClearTimeout = clearTimeout;
+          return clearTimeout(marker);
+        }
+        try {
+          // when when somebody has screwed with setTimeout but no I.E. maddness
+          return cachedClearTimeout(marker);
+        } catch (e) {
+          try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+          } catch (e) {
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+          }
+        }
+      }
+      var queue = [];
+      var draining = false;
+      var currentQueue;
+      var queueIndex = -1;
+
+      function cleanUpNextTick() {
+        if (!draining || !currentQueue) {
+          return;
+        }
+        draining = false;
+        if (currentQueue.length) {
+          queue = currentQueue.concat(queue);
+        } else {
+          queueIndex = -1;
+        }
+        if (queue.length) {
+          drainQueue();
+        }
+      }
+
+      function drainQueue() {
+        if (draining) {
+          return;
+        }
+        var timeout = runTimeout(cleanUpNextTick);
+        draining = true;
+
+        var len = queue.length;
+        while (len) {
+          currentQueue = queue;
+          queue = [];
+          while (++queueIndex < len) {
+            if (currentQueue) {
+              currentQueue[queueIndex].run();
+            }
+          }
+          queueIndex = -1;
+          len = queue.length;
+        }
+        currentQueue = null;
+        draining = false;
+        runClearTimeout(timeout);
+      }
+
+      process.nextTick = function (fun) {
+        var args = new Array(arguments.length - 1);
+        if (arguments.length > 1) {
+          for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+          }
+        }
+        queue.push(new Item(fun, args));
+        if (queue.length === 1 && !draining) {
+          runTimeout(drainQueue);
+        }
+      };
+
+      // v8 likes predictible objects
+      function Item(fun, array) {
+        this.fun = fun;
+        this.array = array;
+      }
+      Item.prototype.run = function () {
+        this.fun.apply(null, this.array);
+      };
+      process.title = 'browser';
+      process.browser = true;
+      process.env = {};
+      process.argv = [];
+      process.version = ''; // empty string to avoid regexp issues
+      process.versions = {};
+
+      function noop() {}
+
+      process.on = noop;
+      process.addListener = noop;
+      process.once = noop;
+      process.off = noop;
+      process.removeListener = noop;
+      process.removeAllListeners = noop;
+      process.emit = noop;
+
+      process.binding = function (name) {
+        throw new Error('process.binding is not supported');
+      };
+
+      process.cwd = function () {
+        return '/';
+      };
+      process.chdir = function (dir) {
+        throw new Error('process.chdir is not supported');
+      };
+      process.umask = function () {
+        return 0;
+      };
+    }, {}], 4: [function (require, module, exports) {
       var library = require('./lib/library');
 
       module.exports = library;
-    }, { "./lib/library": 6 }], 4: [function (require, module, exports) {
+    }, { "./lib/library": 7 }], 5: [function (require, module, exports) {
       "use strict";
 
       var events_1 = require('events');
@@ -357,6 +537,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             this.transport.on('socketError', function (error) {
               _this3.emit('socketError', error);
             });
+            this.transport.on('error', function (error) {
+              _this3.emit('error', error);
+            });
             this.transport.on('socketInfo', function (info) {
               _this3.emit('socketInfo', info);
             });
@@ -392,7 +575,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       }(events_1.EventEmitter);
 
       exports.DroplitClient = DroplitClient;
-    }, { "./Transport": 5, "events": 2 }], 5: [function (require, module, exports) {
+    }, { "./Transport": 6, "events": 2 }], 6: [function (require, module, exports) {
       "use strict";
 
       var events_1 = require('events');
@@ -516,12 +699,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       }(events_1.EventEmitter);
 
       exports.Transport = Transport;
-    }, { "engine.io-client": 15, "events": 2 }], 6: [function (require, module, exports) {
+    }, { "engine.io-client": 16, "events": 2 }], 7: [function (require, module, exports) {
       "use strict";
 
       var DroplitClient_1 = require('./DroplitClient');
       exports.DroplitClient = DroplitClient_1.DroplitClient;
-    }, { "./DroplitClient": 4 }], 7: [function (require, module, exports) {
+    }, { "./DroplitClient": 5 }], 8: [function (require, module, exports) {
       module.exports = after;
 
       function after(count, callback, err_cb) {
@@ -550,7 +733,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       }
 
       function noop() {}
-    }, {}], 8: [function (require, module, exports) {
+    }, {}], 9: [function (require, module, exports) {
       /**
        * An abstraction for slicing an arraybuffer even when
        * ArrayBuffer.prototype.slice is not supported
@@ -588,7 +771,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
         return result.buffer;
       };
-    }, {}], 9: [function (require, module, exports) {
+    }, {}], 10: [function (require, module, exports) {
       /*
        * base64-arraybuffer
        * https://github.com/niklasvh/base64-arraybuffer
@@ -596,8 +779,16 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * Copyright (c) 2012 Niklas von Hertzen
        * Licensed under the MIT license.
        */
-      (function (chars) {
+      (function () {
         "use strict";
+
+        var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+        // Use a lookup table to find the index.
+        var lookup = new Uint8Array(256);
+        for (var i = 0; i < chars.length; i++) {
+          lookup[chars.charCodeAt(i)] = i;
+        }
 
         exports.encode = function (arraybuffer) {
           var bytes = new Uint8Array(arraybuffer),
@@ -642,10 +833,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               bytes = new Uint8Array(arraybuffer);
 
           for (i = 0; i < len; i += 4) {
-            encoded1 = chars.indexOf(base64[i]);
-            encoded2 = chars.indexOf(base64[i + 1]);
-            encoded3 = chars.indexOf(base64[i + 2]);
-            encoded4 = chars.indexOf(base64[i + 3]);
+            encoded1 = lookup[base64.charCodeAt(i)];
+            encoded2 = lookup[base64.charCodeAt(i + 1)];
+            encoded3 = lookup[base64.charCodeAt(i + 2)];
+            encoded4 = lookup[base64.charCodeAt(i + 3)];
 
             bytes[p++] = encoded1 << 2 | encoded2 >> 4;
             bytes[p++] = (encoded2 & 15) << 4 | encoded3 >> 2;
@@ -654,8 +845,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
           return arraybuffer;
         };
-      })("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
-    }, {}], 10: [function (require, module, exports) {
+      })();
+    }, {}], 11: [function (require, module, exports) {
       (function (global) {
         /**
          * Create a blob builder even when vendor prefixes exist
@@ -749,13 +940,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
         }();
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, {}], 11: [function (require, module, exports) {
+    }, {}], 12: [function (require, module, exports) {
 
       /**
        * Expose `Emitter`.
        */
 
-      module.exports = Emitter;
+      if (typeof module !== 'undefined') {
+        module.exports = Emitter;
+      }
 
       /**
        * Initialize a new `Emitter`.
@@ -793,7 +986,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
       Emitter.prototype.on = Emitter.prototype.addEventListener = function (event, fn) {
         this._callbacks = this._callbacks || {};
-        (this._callbacks[event] = this._callbacks[event] || []).push(fn);
+        (this._callbacks['$' + event] = this._callbacks['$' + event] || []).push(fn);
         return this;
       };
 
@@ -808,11 +1001,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       Emitter.prototype.once = function (event, fn) {
-        var self = this;
-        this._callbacks = this._callbacks || {};
-
         function on() {
-          self.off(event, on);
+          this.off(event, on);
           fn.apply(this, arguments);
         }
 
@@ -841,12 +1031,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
 
         // specific event
-        var callbacks = this._callbacks[event];
+        var callbacks = this._callbacks['$' + event];
         if (!callbacks) return this;
 
         // remove all handlers
         if (1 == arguments.length) {
-          delete this._callbacks[event];
+          delete this._callbacks['$' + event];
           return this;
         }
 
@@ -873,7 +1063,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       Emitter.prototype.emit = function (event) {
         this._callbacks = this._callbacks || {};
         var args = [].slice.call(arguments, 1),
-            callbacks = this._callbacks[event];
+            callbacks = this._callbacks['$' + event];
 
         if (callbacks) {
           callbacks = callbacks.slice(0);
@@ -895,7 +1085,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
       Emitter.prototype.listeners = function (event) {
         this._callbacks = this._callbacks || {};
-        return this._callbacks[event] || [];
+        return this._callbacks['$' + event] || [];
       };
 
       /**
@@ -909,7 +1099,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       Emitter.prototype.hasListeners = function (event) {
         return !!this.listeners(event).length;
       };
-    }, {}], 12: [function (require, module, exports) {
+    }, {}], 13: [function (require, module, exports) {
 
       module.exports = function (a, b) {
         var fn = function fn() {};
@@ -917,158 +1107,169 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         a.prototype = new fn();
         a.prototype.constructor = a;
       };
-    }, {}], 13: [function (require, module, exports) {
+    }, {}], 14: [function (require, module, exports) {
+      (function (process) {
 
-      /**
-       * This is the web browser implementation of `debug()`.
-       *
-       * Expose `debug()` as the module.
-       */
+        /**
+         * This is the web browser implementation of `debug()`.
+         *
+         * Expose `debug()` as the module.
+         */
 
-      exports = module.exports = require('./debug');
-      exports.log = log;
-      exports.formatArgs = formatArgs;
-      exports.save = save;
-      exports.load = load;
-      exports.useColors = useColors;
-      exports.storage = 'undefined' != typeof chrome && 'undefined' != typeof chrome.storage ? chrome.storage.local : localstorage();
+        exports = module.exports = require('./debug');
+        exports.log = log;
+        exports.formatArgs = formatArgs;
+        exports.save = save;
+        exports.load = load;
+        exports.useColors = useColors;
+        exports.storage = 'undefined' != typeof chrome && 'undefined' != typeof chrome.storage ? chrome.storage.local : localstorage();
 
-      /**
-       * Colors.
-       */
+        /**
+         * Colors.
+         */
 
-      exports.colors = ['lightseagreen', 'forestgreen', 'goldenrod', 'dodgerblue', 'darkorchid', 'crimson'];
+        exports.colors = ['lightseagreen', 'forestgreen', 'goldenrod', 'dodgerblue', 'darkorchid', 'crimson'];
 
-      /**
-       * Currently only WebKit-based Web Inspectors, Firefox >= v31,
-       * and the Firebug extension (any Firefox version) are known
-       * to support "%c" CSS customizations.
-       *
-       * TODO: add a `localStorage` variable to explicitly enable/disable colors
-       */
+        /**
+         * Currently only WebKit-based Web Inspectors, Firefox >= v31,
+         * and the Firebug extension (any Firefox version) are known
+         * to support "%c" CSS customizations.
+         *
+         * TODO: add a `localStorage` variable to explicitly enable/disable colors
+         */
 
-      function useColors() {
-        // is webkit? http://stackoverflow.com/a/16459606/376773
-        return 'WebkitAppearance' in document.documentElement.style ||
-        // is firebug? http://stackoverflow.com/a/398120/376773
-        window.console && (console.firebug || console.exception && console.table) ||
-        // is firefox >= v31?
-        // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-        navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31;
-      }
+        function useColors() {
+          // is webkit? http://stackoverflow.com/a/16459606/376773
+          // document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
+          return typeof document !== 'undefined' && 'WebkitAppearance' in document.documentElement.style ||
+          // is firebug? http://stackoverflow.com/a/398120/376773
+          window.console && (console.firebug || console.exception && console.table) ||
+          // is firefox >= v31?
+          // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
+          navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31;
+        }
 
-      /**
-       * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
-       */
+        /**
+         * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
+         */
 
-      exports.formatters.j = function (v) {
-        return JSON.stringify(v);
-      };
-
-      /**
-       * Colorize log arguments if enabled.
-       *
-       * @api public
-       */
-
-      function formatArgs() {
-        var args = arguments;
-        var useColors = this.useColors;
-
-        args[0] = (useColors ? '%c' : '') + this.namespace + (useColors ? ' %c' : ' ') + args[0] + (useColors ? '%c ' : ' ') + '+' + exports.humanize(this.diff);
-
-        if (!useColors) return args;
-
-        var c = 'color: ' + this.color;
-        args = [args[0], c, 'color: inherit'].concat(Array.prototype.slice.call(args, 1));
-
-        // the final "%c" is somewhat tricky, because there could be other
-        // arguments passed either before or after the %c, so we need to
-        // figure out the correct index to insert the CSS into
-        var index = 0;
-        var lastC = 0;
-        args[0].replace(/%[a-z%]/g, function (match) {
-          if ('%%' === match) return;
-          index++;
-          if ('%c' === match) {
-            // we only are interested in the *last* %c
-            // (the user may have provided their own)
-            lastC = index;
+        exports.formatters.j = function (v) {
+          try {
+            return JSON.stringify(v);
+          } catch (err) {
+            return '[UnexpectedJSONParseError]: ' + err.message;
           }
-        });
+        };
 
-        args.splice(lastC, 0, c);
-        return args;
-      }
+        /**
+         * Colorize log arguments if enabled.
+         *
+         * @api public
+         */
 
-      /**
-       * Invokes `console.log()` when available.
-       * No-op when `console.log` is not a "function".
-       *
-       * @api public
-       */
+        function formatArgs() {
+          var args = arguments;
+          var useColors = this.useColors;
 
-      function log() {
-        // this hackery is required for IE8/9, where
-        // the `console.log` function doesn't have 'apply'
-        return 'object' === (typeof console === "undefined" ? "undefined" : _typeof(console)) && console.log && Function.prototype.apply.call(console.log, console, arguments);
-      }
+          args[0] = (useColors ? '%c' : '') + this.namespace + (useColors ? ' %c' : ' ') + args[0] + (useColors ? '%c ' : ' ') + '+' + exports.humanize(this.diff);
 
-      /**
-       * Save `namespaces`.
-       *
-       * @param {String} namespaces
-       * @api private
-       */
+          if (!useColors) return args;
 
-      function save(namespaces) {
-        try {
-          if (null == namespaces) {
-            exports.storage.removeItem('debug');
-          } else {
-            exports.storage.debug = namespaces;
+          var c = 'color: ' + this.color;
+          args = [args[0], c, 'color: inherit'].concat(Array.prototype.slice.call(args, 1));
+
+          // the final "%c" is somewhat tricky, because there could be other
+          // arguments passed either before or after the %c, so we need to
+          // figure out the correct index to insert the CSS into
+          var index = 0;
+          var lastC = 0;
+          args[0].replace(/%[a-z%]/g, function (match) {
+            if ('%%' === match) return;
+            index++;
+            if ('%c' === match) {
+              // we only are interested in the *last* %c
+              // (the user may have provided their own)
+              lastC = index;
+            }
+          });
+
+          args.splice(lastC, 0, c);
+          return args;
+        }
+
+        /**
+         * Invokes `console.log()` when available.
+         * No-op when `console.log` is not a "function".
+         *
+         * @api public
+         */
+
+        function log() {
+          // this hackery is required for IE8/9, where
+          // the `console.log` function doesn't have 'apply'
+          return 'object' === (typeof console === "undefined" ? "undefined" : _typeof(console)) && console.log && Function.prototype.apply.call(console.log, console, arguments);
+        }
+
+        /**
+         * Save `namespaces`.
+         *
+         * @param {String} namespaces
+         * @api private
+         */
+
+        function save(namespaces) {
+          try {
+            if (null == namespaces) {
+              exports.storage.removeItem('debug');
+            } else {
+              exports.storage.debug = namespaces;
+            }
+          } catch (e) {}
+        }
+
+        /**
+         * Load `namespaces`.
+         *
+         * @return {String} returns the previously persisted debug modes
+         * @api private
+         */
+
+        function load() {
+          var r;
+          try {
+            return exports.storage.debug;
+          } catch (e) {}
+
+          // If debug isn't set in LS, and we're in Electron, try to load $DEBUG
+          if (typeof process !== 'undefined' && 'env' in process) {
+            return process.env.DEBUG;
           }
-        } catch (e) {}
-      }
+        }
 
-      /**
-       * Load `namespaces`.
-       *
-       * @return {String} returns the previously persisted debug modes
-       * @api private
-       */
+        /**
+         * Enable namespaces listed in `localStorage.debug` initially.
+         */
 
-      function load() {
-        var r;
-        try {
-          r = exports.storage.debug;
-        } catch (e) {}
-        return r;
-      }
+        exports.enable(load());
 
-      /**
-       * Enable namespaces listed in `localStorage.debug` initially.
-       */
+        /**
+         * Localstorage attempts to return the localstorage.
+         *
+         * This is necessary because safari throws
+         * when a user disables cookies/localstorage
+         * and you attempt to access it.
+         *
+         * @return {LocalStorage}
+         * @api private
+         */
 
-      exports.enable(load());
-
-      /**
-       * Localstorage attempts to return the localstorage.
-       *
-       * This is necessary because safari throws
-       * when a user disables cookies/localstorage
-       * and you attempt to access it.
-       *
-       * @return {LocalStorage}
-       * @api private
-       */
-
-      function localstorage() {
-        try {
-          return window.localStorage;
-        } catch (e) {}
-      }
-    }, { "./debug": 14 }], 14: [function (require, module, exports) {
+        function localstorage() {
+          try {
+            return window.localStorage;
+          } catch (e) {}
+        }
+      }).call(this, require('_process'));
+    }, { "./debug": 15, "_process": 3 }], 15: [function (require, module, exports) {
 
       /**
        * This is the common logic for both the Node.js and web browser
@@ -1077,7 +1278,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * Expose `debug()` as the module.
        */
 
-      exports = module.exports = debug;
+      exports = module.exports = debug.debug = debug;
       exports.coerce = coerce;
       exports.disable = disable;
       exports.enable = enable;
@@ -1153,7 +1354,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           if (null == self.useColors) self.useColors = exports.useColors();
           if (null == self.color && self.useColors) self.color = selectColor();
 
-          var args = Array.prototype.slice.call(arguments);
+          var args = new Array(arguments.length);
+          for (var i = 0; i < args.length; i++) {
+            args[i] = arguments[i];
+          }
 
           args[0] = exports.coerce(args[0]);
 
@@ -1180,9 +1384,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             return match;
           });
 
-          if ('function' === typeof exports.formatArgs) {
-            args = exports.formatArgs.apply(self, args);
-          }
+          // apply env-specific formatting
+          args = exports.formatArgs.apply(self, args);
+
           var logFn = enabled.log || exports.log || console.log.bind(console);
           logFn.apply(self, args);
         }
@@ -1211,7 +1415,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         for (var i = 0; i < len; i++) {
           if (!split[i]) continue; // ignore empty strings
-          namespaces = split[i].replace(/\*/g, '.*?');
+          namespaces = split[i].replace(/[\\^$+?.()|[\]{}]/g, '\\$&').replace(/\*/g, '.*?');
           if (namespaces[0] === '-') {
             exports.skips.push(new RegExp('^' + namespaces.substr(1) + '$'));
           } else {
@@ -1265,10 +1469,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         if (val instanceof Error) return val.stack || val.message;
         return val;
       }
-    }, { "ms": 31 }], 15: [function (require, module, exports) {
+    }, { "ms": 32 }], 16: [function (require, module, exports) {
 
-      module.exports = require('./lib/');
-    }, { "./lib/": 16 }], 16: [function (require, module, exports) {
+      module.exports = require('./lib/index');
+    }, { "./lib/index": 17 }], 17: [function (require, module, exports) {
 
       module.exports = require('./socket');
 
@@ -1279,13 +1483,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        *
        */
       module.exports.parser = require('engine.io-parser');
-    }, { "./socket": 17, "engine.io-parser": 25 }], 17: [function (require, module, exports) {
+    }, { "./socket": 18, "engine.io-parser": 26 }], 18: [function (require, module, exports) {
       (function (global) {
         /**
          * Module dependencies.
          */
 
-        var transports = require('./transports');
+        var transports = require('./transports/index');
         var Emitter = require('component-emitter');
         var debug = require('debug')('engine.io-client:socket');
         var index = require('indexof');
@@ -1301,14 +1505,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         module.exports = Socket;
 
         /**
-         * Noop function.
-         *
-         * @api private
-         */
-
-        function noop() {}
-
-        /**
          * Socket constructor.
          *
          * @param {String|Object} uri or options
@@ -1321,7 +1517,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
           opts = opts || {};
 
-          if (uri && 'object' == (typeof uri === "undefined" ? "undefined" : _typeof(uri))) {
+          if (uri && 'object' === (typeof uri === "undefined" ? "undefined" : _typeof(uri))) {
             opts = uri;
             uri = null;
           }
@@ -1329,14 +1525,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           if (uri) {
             uri = parseuri(uri);
             opts.hostname = uri.host;
-            opts.secure = uri.protocol == 'https' || uri.protocol == 'wss';
+            opts.secure = uri.protocol === 'https' || uri.protocol === 'wss';
             opts.port = uri.port;
             if (uri.query) opts.query = uri.query;
           } else if (opts.host) {
             opts.hostname = parseuri(opts.host).host;
           }
 
-          this.secure = null != opts.secure ? opts.secure : global.location && 'https:' == location.protocol;
+          this.secure = null != opts.secure ? opts.secure : global.location && 'https:' === location.protocol;
 
           if (opts.hostname && !opts.port) {
             // if no port is specified manually, use the protocol default
@@ -1347,7 +1543,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           this.hostname = opts.hostname || (global.location ? location.hostname : 'localhost');
           this.port = opts.port || (global.location && location.port ? location.port : this.secure ? 443 : 80);
           this.query = opts.query || {};
-          if ('string' == typeof this.query) this.query = parseqs.decode(this.query);
+          if ('string' === typeof this.query) this.query = parseqs.decode(this.query);
           this.upgrade = false !== opts.upgrade;
           this.path = (opts.path || '/engine.io').replace(/\/$/, '') + '/';
           this.forceJSONP = !!opts.forceJSONP;
@@ -1359,6 +1555,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           this.transports = opts.transports || ['polling', 'websocket'];
           this.readyState = '';
           this.writeBuffer = [];
+          this.prevBufferLen = 0;
           this.policyPort = opts.policyPort || 843;
           this.rememberUpgrade = opts.rememberUpgrade || false;
           this.binaryType = null;
@@ -1377,15 +1574,30 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           this.cert = opts.cert || null;
           this.ca = opts.ca || null;
           this.ciphers = opts.ciphers || null;
-          this.rejectUnauthorized = opts.rejectUnauthorized === undefined ? true : opts.rejectUnauthorized;
+          this.rejectUnauthorized = opts.rejectUnauthorized === undefined ? null : opts.rejectUnauthorized;
+          this.forceNode = !!opts.forceNode;
 
           // other options for Node.js client
-          var freeGlobal = (typeof global === "undefined" ? "undefined" : _typeof(global)) == 'object' && global;
+          var freeGlobal = (typeof global === "undefined" ? "undefined" : _typeof(global)) === 'object' && global;
           if (freeGlobal.global === freeGlobal) {
             if (opts.extraHeaders && Object.keys(opts.extraHeaders).length > 0) {
               this.extraHeaders = opts.extraHeaders;
             }
+
+            if (opts.localAddress) {
+              this.localAddress = opts.localAddress;
+            }
           }
+
+          // set on handshake
+          this.id = null;
+          this.upgrades = null;
+          this.pingInterval = null;
+          this.pingTimeout = null;
+
+          // set on heartbeat
+          this.pingIntervalTimer = null;
+          this.pingTimeoutTimer = null;
 
           this.open();
         }
@@ -1413,7 +1625,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         Socket.Socket = Socket;
         Socket.Transport = require('./transport');
-        Socket.transports = require('./transports');
+        Socket.transports = require('./transports/index');
         Socket.parser = require('engine.io-parser');
 
         /**
@@ -1460,7 +1672,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             ciphers: this.ciphers,
             rejectUnauthorized: this.rejectUnauthorized,
             perMessageDeflate: this.perMessageDeflate,
-            extraHeaders: this.extraHeaders
+            extraHeaders: this.extraHeaders,
+            forceNode: this.forceNode,
+            localAddress: this.localAddress
           });
 
           return transport;
@@ -1483,7 +1697,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
         Socket.prototype.open = function () {
           var transport;
-          if (this.rememberUpgrade && Socket.priorWebsocketSuccess && this.transports.indexOf('websocket') != -1) {
+          if (this.rememberUpgrade && Socket.priorWebsocketSuccess && this.transports.indexOf('websocket') !== -1) {
             transport = 'websocket';
           } else if (0 === this.transports.length) {
             // Emit error on next tick so it can be listened to
@@ -1549,9 +1763,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         Socket.prototype.probe = function (name) {
           debug('probing transport "%s"', name);
-          var transport = this.createTransport(name, { probe: 1 }),
-              failed = false,
-              self = this;
+          var transport = this.createTransport(name, { probe: 1 });
+          var failed = false;
+          var self = this;
 
           Socket.priorWebsocketSuccess = false;
 
@@ -1566,17 +1780,17 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             transport.send([{ type: 'ping', data: 'probe' }]);
             transport.once('packet', function (msg) {
               if (failed) return;
-              if ('pong' == msg.type && 'probe' == msg.data) {
+              if ('pong' === msg.type && 'probe' === msg.data) {
                 debug('probe transport "%s" pong', name);
                 self.upgrading = true;
                 self.emit('upgrading', transport);
                 if (!transport) return;
-                Socket.priorWebsocketSuccess = 'websocket' == transport.name;
+                Socket.priorWebsocketSuccess = 'websocket' === transport.name;
 
                 debug('pausing current transport "%s"', self.transport.name);
                 self.transport.pause(function () {
                   if (failed) return;
-                  if ('closed' == self.readyState) return;
+                  if ('closed' === self.readyState) return;
                   debug('changing transport and sending upgrade packet');
 
                   cleanup();
@@ -1609,7 +1823,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             transport = null;
           }
 
-          //Handle any error that happens while probing
+          // Handle any error that happens while probing
           function onerror(err) {
             var error = new Error('probe error: ' + err);
             error.transport = transport.name;
@@ -1622,23 +1836,23 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
 
           function onTransportClose() {
-            onerror("transport closed");
+            onerror('transport closed');
           }
 
-          //When the socket is closed while we're probing
+          // When the socket is closed while we're probing
           function onclose() {
-            onerror("socket closed");
+            onerror('socket closed');
           }
 
-          //When the socket is upgraded while we're probing
+          // When the socket is upgraded while we're probing
           function onupgrade(to) {
-            if (transport && to.name != transport.name) {
+            if (transport && to.name !== transport.name) {
               debug('"%s" works - aborting "%s"', to.name, transport.name);
               freezeTransport();
             }
           }
 
-          //Remove all listeners on the transport and on self
+          // Remove all listeners on the transport and on self
           function cleanup() {
             transport.removeListener('open', onTransportOpen);
             transport.removeListener('error', onerror);
@@ -1666,13 +1880,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         Socket.prototype.onOpen = function () {
           debug('socket open');
           this.readyState = 'open';
-          Socket.priorWebsocketSuccess = 'websocket' == this.transport.name;
+          Socket.priorWebsocketSuccess = 'websocket' === this.transport.name;
           this.emit('open');
           this.flush();
 
           // we check for `readyState` in case an `open`
           // listener already closed the socket
-          if ('open' == this.readyState && this.upgrade && this.transport.pause) {
+          if ('open' === this.readyState && this.upgrade && this.transport.pause) {
             debug('starting upgrade probes');
             for (var i = 0, l = this.upgrades.length; i < l; i++) {
               this.probe(this.upgrades[i]);
@@ -1687,7 +1901,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         Socket.prototype.onPacket = function (packet) {
-          if ('opening' == this.readyState || 'open' == this.readyState) {
+          if ('opening' === this.readyState || 'open' === this.readyState || 'closing' === this.readyState) {
             debug('socket receive: type "%s", data "%s"', packet.type, packet.data);
 
             this.emit('packet', packet);
@@ -1737,7 +1951,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           this.pingTimeout = data.pingTimeout;
           this.onOpen();
           // In case open handler closes socket
-          if ('closed' == this.readyState) return;
+          if ('closed' === this.readyState) return;
           this.setPing();
 
           // Prolong liveness of socket on heartbeat
@@ -1755,7 +1969,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           clearTimeout(this.pingTimeoutTimer);
           var self = this;
           self.pingTimeoutTimer = setTimeout(function () {
-            if ('closed' == self.readyState) return;
+            if ('closed' === self.readyState) return;
             self.onClose('ping timeout');
           }, timeout || self.pingInterval + self.pingTimeout);
         };
@@ -1818,7 +2032,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         Socket.prototype.flush = function () {
-          if ('closed' != this.readyState && this.transport.writable && !this.upgrading && this.writeBuffer.length) {
+          if ('closed' !== this.readyState && this.transport.writable && !this.upgrading && this.writeBuffer.length) {
             debug('flushing %d packets in socket', this.writeBuffer.length);
             this.transport.send(this.writeBuffer);
             // keep track of current length of writeBuffer
@@ -1854,17 +2068,17 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         Socket.prototype.sendPacket = function (type, data, options, fn) {
-          if ('function' == typeof data) {
+          if ('function' === typeof data) {
             fn = data;
             data = undefined;
           }
 
-          if ('function' == typeof options) {
+          if ('function' === typeof options) {
             fn = options;
             options = null;
           }
 
-          if ('closing' == this.readyState || 'closed' == this.readyState) {
+          if ('closing' === this.readyState || 'closed' === this.readyState) {
             return;
           }
 
@@ -1889,7 +2103,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         Socket.prototype.close = function () {
-          if ('opening' == this.readyState || 'open' == this.readyState) {
+          if ('opening' === this.readyState || 'open' === this.readyState) {
             this.readyState = 'closing';
 
             var self = this;
@@ -1950,7 +2164,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         Socket.prototype.onClose = function (reason, desc) {
-          if ('opening' == this.readyState || 'open' == this.readyState || 'closing' == this.readyState) {
+          if ('opening' === this.readyState || 'open' === this.readyState || 'closing' === this.readyState) {
             debug('socket close with reason: "%s"', reason);
             var self = this;
 
@@ -1999,7 +2213,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           return filteredUpgrades;
         };
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "./transport": 18, "./transports": 19, "component-emitter": 11, "debug": 13, "engine.io-parser": 25, "indexof": 29, "parsejson": 32, "parseqs": 33, "parseuri": 34 }], 18: [function (require, module, exports) {
+    }, { "./transport": 19, "./transports/index": 20, "component-emitter": 12, "debug": 14, "engine.io-parser": 26, "indexof": 30, "parsejson": 33, "parseqs": 34, "parseuri": 35 }], 19: [function (require, module, exports) {
       /**
        * Module dependencies.
        */
@@ -2041,9 +2255,11 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.ca = opts.ca;
         this.ciphers = opts.ciphers;
         this.rejectUnauthorized = opts.rejectUnauthorized;
+        this.forceNode = opts.forceNode;
 
         // other options for Node.js client
         this.extraHeaders = opts.extraHeaders;
+        this.localAddress = opts.localAddress;
       }
 
       /**
@@ -2075,7 +2291,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       Transport.prototype.open = function () {
-        if ('closed' == this.readyState || '' == this.readyState) {
+        if ('closed' === this.readyState || '' === this.readyState) {
           this.readyState = 'opening';
           this.doOpen();
         }
@@ -2090,7 +2306,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       Transport.prototype.close = function () {
-        if ('opening' == this.readyState || 'open' == this.readyState) {
+        if ('opening' === this.readyState || 'open' === this.readyState) {
           this.doClose();
           this.onClose();
         }
@@ -2106,7 +2322,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       Transport.prototype.send = function (packets) {
-        if ('open' == this.readyState) {
+        if ('open' === this.readyState) {
           this.write(packets);
         } else {
           throw new Error('Transport not open');
@@ -2155,7 +2371,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.readyState = 'closed';
         this.emit('close');
       };
-    }, { "component-emitter": 11, "engine.io-parser": 25 }], 19: [function (require, module, exports) {
+    }, { "component-emitter": 12, "engine.io-parser": 26 }], 20: [function (require, module, exports) {
       (function (global) {
         /**
          * Module dependencies
@@ -2187,7 +2403,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           var jsonp = false !== opts.jsonp;
 
           if (global.location) {
-            var isSSL = 'https:' == location.protocol;
+            var isSSL = 'https:' === location.protocol;
             var port = location.port;
 
             // some user agents have empty `location.port`
@@ -2195,8 +2411,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               port = isSSL ? 443 : 80;
             }
 
-            xd = opts.hostname != location.hostname || port != opts.port;
-            xs = opts.secure != isSSL;
+            xd = opts.hostname !== location.hostname || port !== opts.port;
+            xs = opts.secure !== isSSL;
           }
 
           opts.xdomain = xd;
@@ -2211,7 +2427,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
         }
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "./polling-jsonp": 20, "./polling-xhr": 21, "./websocket": 23, "xmlhttprequest-ssl": 24 }], 20: [function (require, module, exports) {
+    }, { "./polling-jsonp": 21, "./polling-xhr": 22, "./websocket": 24, "xmlhttprequest-ssl": 25 }], 21: [function (require, module, exports) {
       (function (global) {
 
         /**
@@ -2239,12 +2455,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         var callbacks;
-
-        /**
-         * Callbacks count.
-         */
-
-        var index = 0;
 
         /**
          * Noop.
@@ -2354,7 +2564,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
           this.script = script;
 
-          var isUAgecko = 'undefined' != typeof navigator && /gecko/i.test(navigator.userAgent);
+          var isUAgecko = 'undefined' !== typeof navigator && /gecko/i.test(navigator.userAgent);
 
           if (isUAgecko) {
             setTimeout(function () {
@@ -2442,7 +2652,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
           if (this.iframe.attachEvent) {
             this.iframe.onreadystatechange = function () {
-              if (self.iframe.readyState == 'complete') {
+              if (self.iframe.readyState === 'complete') {
                 complete();
               }
             };
@@ -2451,7 +2661,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
         };
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "./polling": 22, "component-inherit": 12 }], 21: [function (require, module, exports) {
+    }, { "./polling": 23, "component-inherit": 13 }], 22: [function (require, module, exports) {
       (function (global) {
         /**
          * Module requirements.
@@ -2485,9 +2695,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         function XHR(opts) {
           Polling.call(this, opts);
+          this.requestTimeout = opts.requestTimeout;
 
           if (global.location) {
-            var isSSL = 'https:' == location.protocol;
+            var isSSL = 'https:' === location.protocol;
             var port = location.port;
 
             // some user agents have empty `location.port`
@@ -2495,8 +2706,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               port = isSSL ? 443 : 80;
             }
 
-            this.xd = opts.hostname != global.location.hostname || port != opts.port;
-            this.xs = opts.secure != isSSL;
+            this.xd = opts.hostname !== global.location.hostname || port !== opts.port;
+            this.xs = opts.secure !== isSSL;
           } else {
             this.extraHeaders = opts.extraHeaders;
           }
@@ -2538,6 +2749,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           opts.ca = this.ca;
           opts.ciphers = this.ciphers;
           opts.rejectUnauthorized = this.rejectUnauthorized;
+          opts.requestTimeout = this.requestTimeout;
 
           // other options for Node.js client
           opts.extraHeaders = this.extraHeaders;
@@ -2596,11 +2808,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           this.xd = !!opts.xd;
           this.xs = !!opts.xs;
           this.async = false !== opts.async;
-          this.data = undefined != opts.data ? opts.data : null;
+          this.data = undefined !== opts.data ? opts.data : null;
           this.agent = opts.agent;
           this.isBinary = opts.isBinary;
           this.supportsBinary = opts.supportsBinary;
           this.enablesXDR = opts.enablesXDR;
+          this.requestTimeout = opts.requestTimeout;
 
           // SSL options for Node.js client
           this.pfx = opts.pfx;
@@ -2663,7 +2876,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               xhr.responseType = 'arraybuffer';
             }
 
-            if ('POST' == this.method) {
+            if ('POST' === this.method) {
               try {
                 if (this.isBinary) {
                   xhr.setRequestHeader('Content-type', 'application/octet-stream');
@@ -2673,9 +2886,17 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               } catch (e) {}
             }
 
+            try {
+              xhr.setRequestHeader('Accept', '*/*');
+            } catch (e) {}
+
             // ie6 check
             if ('withCredentials' in xhr) {
               xhr.withCredentials = true;
+            }
+
+            if (this.requestTimeout) {
+              xhr.timeout = this.requestTimeout;
             }
 
             if (this.hasXDR()) {
@@ -2687,8 +2908,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               };
             } else {
               xhr.onreadystatechange = function () {
-                if (4 != xhr.readyState) return;
-                if (200 == xhr.status || 1223 == xhr.status) {
+                if (4 !== xhr.readyState) return;
+                if (200 === xhr.status || 1223 === xhr.status) {
                   self.onLoad();
                 } else {
                   // make sure the `error` event handler that's user-set
@@ -2758,7 +2979,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         Request.prototype.cleanup = function (fromError) {
-          if ('undefined' == typeof this.xhr || null === this.xhr) {
+          if ('undefined' === typeof this.xhr || null === this.xhr) {
             return;
           }
           // xmlhttprequest
@@ -2795,7 +3016,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               contentType = this.xhr.getResponseHeader('Content-Type').split(';')[0];
             } catch (e) {}
             if (contentType === 'application/octet-stream') {
-              data = this.xhr.response;
+              data = this.xhr.response || this.xhr.responseText;
             } else {
               if (!this.supportsBinary) {
                 data = this.xhr.responseText;
@@ -2847,9 +3068,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          * emitted.
          */
 
+        Request.requestsCount = 0;
+        Request.requests = {};
+
         if (global.document) {
-          Request.requestsCount = 0;
-          Request.requests = {};
           if (global.attachEvent) {
             global.attachEvent('onunload', unloadHandler);
           } else if (global.addEventListener) {
@@ -2865,7 +3087,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
         }
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "./polling": 22, "component-emitter": 11, "component-inherit": 12, "debug": 13, "xmlhttprequest-ssl": 24 }], 22: [function (require, module, exports) {
+    }, { "./polling": 23, "component-emitter": 12, "component-inherit": 13, "debug": 14, "xmlhttprequest-ssl": 25 }], 23: [function (require, module, exports) {
       /**
        * Module dependencies.
        */
@@ -2939,7 +3161,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       Polling.prototype.pause = function (onPause) {
-        var pending = 0;
         var self = this;
 
         this.readyState = 'pausing';
@@ -2999,12 +3220,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         debug('polling got data %s', data);
         var callback = function callback(packet, index, total) {
           // if its the first message we consider the transport open
-          if ('opening' == self.readyState) {
+          if ('opening' === self.readyState) {
             self.onOpen();
           }
 
           // if its a close packet, we close the ongoing requests
-          if ('close' == packet.type) {
+          if ('close' === packet.type) {
             self.onClose();
             return false;
           }
@@ -3017,12 +3238,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         parser.decodePayload(data, this.socket.binaryType, callback);
 
         // if an event did not trigger closing
-        if ('closed' != this.readyState) {
+        if ('closed' !== this.readyState) {
           // if we got data we're not polling
           this.polling = false;
           this.emit('pollComplete');
 
-          if ('open' == this.readyState) {
+          if ('open' === this.readyState) {
             this.poll();
           } else {
             debug('ignoring poll - transport state "%s"', this.readyState);
@@ -3044,7 +3265,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           self.write([{ type: 'close' }]);
         }
 
-        if ('open' == this.readyState) {
+        if ('open' === this.readyState) {
           debug('transport open - closing');
           close();
         } else {
@@ -3071,7 +3292,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           self.emit('drain');
         };
 
-        var self = this;
         parser.encodePayload(packets, this.supportsBinary, function (data) {
           self.doWrite(data, callbackfn);
         });
@@ -3100,7 +3320,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         query = parseqs.encode(query);
 
         // avoid port if default for schema
-        if (this.port && ('https' == schema && this.port != 443 || 'http' == schema && this.port != 80)) {
+        if (this.port && ('https' === schema && Number(this.port) !== 443 || 'http' === schema && Number(this.port) !== 80)) {
           port = ':' + this.port;
         }
 
@@ -3112,7 +3332,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         var ipv6 = this.hostname.indexOf(':') !== -1;
         return schema + '://' + (ipv6 ? '[' + this.hostname + ']' : this.hostname) + port + this.path + query;
       };
-    }, { "../transport": 18, "component-inherit": 12, "debug": 13, "engine.io-parser": 25, "parseqs": 33, "xmlhttprequest-ssl": 24, "yeast": 36 }], 23: [function (require, module, exports) {
+    }, { "../transport": 19, "component-inherit": 13, "debug": 14, "engine.io-parser": 26, "parseqs": 34, "xmlhttprequest-ssl": 25, "yeast": 37 }], 24: [function (require, module, exports) {
       (function (global) {
         /**
          * Module dependencies.
@@ -3125,6 +3345,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         var yeast = require('yeast');
         var debug = require('debug')('engine.io-client:websocket');
         var BrowserWebSocket = global.WebSocket || global.MozWebSocket;
+        var NodeWebSocket;
+        if (typeof window === 'undefined') {
+          try {
+            NodeWebSocket = require('ws');
+          } catch (e) {}
+        }
 
         /**
          * Get either the `WebSocket` or `MozWebSocket` globals
@@ -3134,9 +3360,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         var WebSocket = BrowserWebSocket;
         if (!WebSocket && typeof window === 'undefined') {
-          try {
-            WebSocket = require('ws');
-          } catch (e) {}
+          WebSocket = NodeWebSocket;
         }
 
         /**
@@ -3158,6 +3382,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             this.supportsBinary = false;
           }
           this.perMessageDeflate = opts.perMessageDeflate;
+          this.usingBrowserWebSocket = BrowserWebSocket && !opts.forceNode;
+          if (!this.usingBrowserWebSocket) {
+            WebSocket = NodeWebSocket;
+          }
           Transport.call(this, opts);
         }
 
@@ -3193,7 +3421,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             return;
           }
 
-          var self = this;
           var uri = this.uri();
           var protocols = void 0;
           var opts = {
@@ -3212,8 +3439,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           if (this.extraHeaders) {
             opts.headers = this.extraHeaders;
           }
+          if (this.localAddress) {
+            opts.localAddress = this.localAddress;
+          }
 
-          this.ws = BrowserWebSocket ? new WebSocket(uri) : new WebSocket(uri, protocols, opts);
+          try {
+            this.ws = this.usingBrowserWebSocket ? new WebSocket(uri) : new WebSocket(uri, protocols, opts);
+          } catch (err) {
+            return this.emit('error', err);
+          }
 
           if (this.ws.binaryType === undefined) {
             this.supportsBinary = false;
@@ -3221,7 +3455,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
           if (this.ws.supports && this.ws.supports.binary) {
             this.supportsBinary = true;
-            this.ws.binaryType = 'buffer';
+            this.ws.binaryType = 'nodebuffer';
           } else {
             this.ws.binaryType = 'arraybuffer';
           }
@@ -3253,22 +3487,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         };
 
         /**
-         * Override `onData` to use a timer on iOS.
-         * See: https://gist.github.com/mloughran/2052006
-         *
-         * @api private
-         */
-
-        if ('undefined' != typeof navigator && /iPad|iPhone|iPod/i.test(navigator.userAgent)) {
-          WS.prototype.onData = function (data) {
-            var self = this;
-            setTimeout(function () {
-              Transport.prototype.onData.call(self, data);
-            }, 0);
-          };
-        }
-
-        /**
          * Writes data to socket.
          *
          * @param {Array} array of packets.
@@ -3285,7 +3503,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           for (var i = 0, l = total; i < l; i++) {
             (function (packet) {
               parser.encodePacket(packet, self.supportsBinary, function (data) {
-                if (!BrowserWebSocket) {
+                if (!self.usingBrowserWebSocket) {
                   // always create a new object (GH-437)
                   var opts = {};
                   if (packet.options) {
@@ -3293,18 +3511,18 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
                   }
 
                   if (self.perMessageDeflate) {
-                    var len = 'string' == typeof data ? global.Buffer.byteLength(data) : data.length;
+                    var len = 'string' === typeof data ? global.Buffer.byteLength(data) : data.length;
                     if (len < self.perMessageDeflate.threshold) {
                       opts.compress = false;
                     }
                   }
                 }
 
-                //Sometimes the websocket has already been closed but the browser didn't
-                //have a chance of informing us about it yet, in that case send will
-                //throw an error
+                // Sometimes the websocket has already been closed but the browser didn't
+                // have a chance of informing us about it yet, in that case send will
+                // throw an error
                 try {
-                  if (BrowserWebSocket) {
+                  if (self.usingBrowserWebSocket) {
                     // TypeError is thrown when passing the second argument on Safari
                     self.ws.send(data);
                   } else {
@@ -3365,7 +3583,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           var port = '';
 
           // avoid port if default for schema
-          if (this.port && ('wss' == schema && this.port != 443 || 'ws' == schema && this.port != 80)) {
+          if (this.port && ('wss' === schema && Number(this.port) !== 443 || 'ws' === schema && Number(this.port) !== 80)) {
             port = ':' + this.port;
           }
 
@@ -3401,44 +3619,47 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           return !!WebSocket && !('__initialize' in WebSocket && this.name === WS.prototype.name);
         };
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "../transport": 18, "component-inherit": 12, "debug": 13, "engine.io-parser": 25, "parseqs": 33, "ws": 1, "yeast": 36 }], 24: [function (require, module, exports) {
-      // browser shim for xmlhttprequest module
-      var hasCORS = require('has-cors');
+    }, { "../transport": 19, "component-inherit": 13, "debug": 14, "engine.io-parser": 26, "parseqs": 34, "ws": 1, "yeast": 37 }], 25: [function (require, module, exports) {
+      (function (global) {
+        // browser shim for xmlhttprequest module
 
-      module.exports = function (opts) {
-        var xdomain = opts.xdomain;
+        var hasCORS = require('has-cors');
 
-        // scheme must be same when usign XDomainRequest
-        // http://blogs.msdn.com/b/ieinternals/archive/2010/05/13/xdomainrequest-restrictions-limitations-and-workarounds.aspx
-        var xscheme = opts.xscheme;
+        module.exports = function (opts) {
+          var xdomain = opts.xdomain;
 
-        // XDomainRequest has a flow of not sending cookie, therefore it should be disabled as a default.
-        // https://github.com/Automattic/engine.io-client/pull/217
-        var enablesXDR = opts.enablesXDR;
+          // scheme must be same when usign XDomainRequest
+          // http://blogs.msdn.com/b/ieinternals/archive/2010/05/13/xdomainrequest-restrictions-limitations-and-workarounds.aspx
+          var xscheme = opts.xscheme;
 
-        // XMLHttpRequest can be disabled on IE
-        try {
-          if ('undefined' != typeof XMLHttpRequest && (!xdomain || hasCORS)) {
-            return new XMLHttpRequest();
-          }
-        } catch (e) {}
+          // XDomainRequest has a flow of not sending cookie, therefore it should be disabled as a default.
+          // https://github.com/Automattic/engine.io-client/pull/217
+          var enablesXDR = opts.enablesXDR;
 
-        // Use XDomainRequest for IE8 if enablesXDR is true
-        // because loading bar keeps flashing when using jsonp-polling
-        // https://github.com/yujiosaka/socke.io-ie8-loading-example
-        try {
-          if ('undefined' != typeof XDomainRequest && !xscheme && enablesXDR) {
-            return new XDomainRequest();
-          }
-        } catch (e) {}
-
-        if (!xdomain) {
+          // XMLHttpRequest can be disabled on IE
           try {
-            return new ActiveXObject('Microsoft.XMLHTTP');
+            if ('undefined' !== typeof XMLHttpRequest && (!xdomain || hasCORS)) {
+              return new XMLHttpRequest();
+            }
           } catch (e) {}
-        }
-      };
-    }, { "has-cors": 28 }], 25: [function (require, module, exports) {
+
+          // Use XDomainRequest for IE8 if enablesXDR is true
+          // because loading bar keeps flashing when using jsonp-polling
+          // https://github.com/yujiosaka/socke.io-ie8-loading-example
+          try {
+            if ('undefined' !== typeof XDomainRequest && !xscheme && enablesXDR) {
+              return new XDomainRequest();
+            }
+          } catch (e) {}
+
+          if (!xdomain) {
+            try {
+              return new global[['Active'].concat('Object').join('X')]('Microsoft.XMLHTTP');
+            } catch (e) {}
+          }
+        };
+      }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
+    }, { "has-cors": 29 }], 26: [function (require, module, exports) {
       (function (global) {
         /**
          * Module dependencies.
@@ -3447,9 +3668,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         var keys = require('./keys');
         var hasBinary = require('has-binary');
         var sliceBuffer = require('arraybuffer.slice');
-        var base64encoder = require('base64-arraybuffer');
         var after = require('after');
-        var utf8 = require('utf8');
+        var utf8 = require('wtf-8');
+
+        var base64encoder;
+        if (global && global.ArrayBuffer) {
+          base64encoder = require('base64-arraybuffer');
+        }
 
         /**
          * Check if we are running an android browser. That requires us to use
@@ -3458,7 +3683,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          * http://ghinda.net/jpeg-blob-ajax-android/
          */
 
-        var isAndroid = navigator.userAgent.match(/Android/i);
+        var isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
 
         /**
          * Check if we are running in PhantomJS.
@@ -3466,7 +3691,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          * https://github.com/ariya/phantomjs/issues/11395
          * @type boolean
          */
-        var isPhantomJS = /PhantomJS/i.test(navigator.userAgent);
+        var isPhantomJS = typeof navigator !== 'undefined' && /PhantomJS/i.test(navigator.userAgent);
 
         /**
          * When true, avoids using Blobs to encode payloads.
@@ -3657,16 +3882,18 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
          */
 
         exports.decodePacket = function (data, binaryType, utf8decode) {
+          if (data === undefined) {
+            return err;
+          }
           // String data
-          if (typeof data == 'string' || data === undefined) {
+          if (typeof data == 'string') {
             if (data.charAt(0) == 'b') {
               return exports.decodeBase64Packet(data.substr(1), binaryType);
             }
 
             if (utf8decode) {
-              try {
-                data = utf8.decode(data);
-              } catch (e) {
+              data = tryDecode(data);
+              if (data === false) {
                 return err;
               }
             }
@@ -3692,6 +3919,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           return { type: packetslist[type], data: rest };
         };
 
+        function tryDecode(data) {
+          try {
+            data = utf8.decode(data);
+          } catch (e) {
+            return false;
+          }
+          return data;
+        }
+
         /**
          * Decodes a packet encoded in a base64 string
          *
@@ -3701,7 +3937,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         exports.decodeBase64Packet = function (msg, binaryType) {
           var type = packetslist[msg.charAt(0)];
-          if (!global.ArrayBuffer) {
+          if (!base64encoder) {
             return { type: type, data: { base64: true, data: msg.substr(1) } };
           }
 
@@ -4032,7 +4268,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           });
         };
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "./keys": 26, "after": 7, "arraybuffer.slice": 8, "base64-arraybuffer": 9, "blob": 10, "has-binary": 27, "utf8": 35 }], 26: [function (require, module, exports) {
+    }, { "./keys": 27, "after": 8, "arraybuffer.slice": 9, "base64-arraybuffer": 10, "blob": 11, "has-binary": 28, "wtf-8": 36 }], 27: [function (require, module, exports) {
 
       /**
        * Gets the keys for an object.
@@ -4052,7 +4288,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
         return arr;
       };
-    }, {}], 27: [function (require, module, exports) {
+    }, {}], 28: [function (require, module, exports) {
       (function (global) {
 
         /*
@@ -4081,7 +4317,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           function _hasBinary(obj) {
             if (!obj) return false;
 
-            if (global.Buffer && global.Buffer.isBuffer(obj) || global.ArrayBuffer && obj instanceof ArrayBuffer || global.Blob && obj instanceof Blob || global.File && obj instanceof File) {
+            if (global.Buffer && global.Buffer.isBuffer && global.Buffer.isBuffer(obj) || global.ArrayBuffer && obj instanceof ArrayBuffer || global.Blob && obj instanceof Blob || global.File && obj instanceof File) {
               return true;
             }
 
@@ -4092,7 +4328,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
                 }
               }
             } else if (obj && 'object' == (typeof obj === "undefined" ? "undefined" : _typeof(obj))) {
-              if (obj.toJSON) {
+              // see: https://github.com/Automattic/has-binary/pull/4
+              if (obj.toJSON && 'function' == typeof obj.toJSON) {
                 obj = obj.toJSON();
               }
 
@@ -4109,7 +4346,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           return _hasBinary(data);
         }
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, { "isarray": 30 }], 28: [function (require, module, exports) {
+    }, { "isarray": 31 }], 29: [function (require, module, exports) {
 
       /**
        * Module exports.
@@ -4126,7 +4363,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         // when trying to create
         module.exports = false;
       }
-    }, {}], 29: [function (require, module, exports) {
+    }, {}], 30: [function (require, module, exports) {
 
       var indexOf = [].indexOf;
 
@@ -4137,11 +4374,11 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
         return -1;
       };
-    }, {}], 30: [function (require, module, exports) {
+    }, {}], 31: [function (require, module, exports) {
       module.exports = Array.isArray || function (arr) {
         return Object.prototype.toString.call(arr) == '[object Array]';
       };
-    }, {}], 31: [function (require, module, exports) {
+    }, {}], 32: [function (require, module, exports) {
       /**
        * Helpers.
        */
@@ -4161,14 +4398,20 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        *
        * @param {String|Number} val
        * @param {Object} options
+       * @throws {Error} throw an error if val is not a non-empty string or a number
        * @return {String|Number}
        * @api public
        */
 
       module.exports = function (val, options) {
         options = options || {};
-        if ('string' == typeof val) return parse(val);
-        return options.long ? long(val) : short(val);
+        var type = typeof val === "undefined" ? "undefined" : _typeof(val);
+        if (type === 'string' && val.length > 0) {
+          return parse(val);
+        } else if (type === 'number' && isNaN(val) === false) {
+          return options.long ? fmtLong(val) : fmtShort(val);
+        }
+        throw new Error('val is not a non-empty string or a valid number. val=' + JSON.stringify(val));
       };
 
       /**
@@ -4180,10 +4423,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       function parse(str) {
-        str = '' + str;
-        if (str.length > 10000) return;
+        str = String(str);
+        if (str.length > 10000) {
+          return;
+        }
         var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str);
-        if (!match) return;
+        if (!match) {
+          return;
+        }
         var n = parseFloat(match[1]);
         var type = (match[2] || 'ms').toLowerCase();
         switch (type) {
@@ -4221,6 +4468,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           case 'msec':
           case 'ms':
             return n;
+          default:
+            return undefined;
         }
       }
 
@@ -4232,11 +4481,19 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @api private
        */
 
-      function short(ms) {
-        if (ms >= d) return Math.round(ms / d) + 'd';
-        if (ms >= h) return Math.round(ms / h) + 'h';
-        if (ms >= m) return Math.round(ms / m) + 'm';
-        if (ms >= s) return Math.round(ms / s) + 's';
+      function fmtShort(ms) {
+        if (ms >= d) {
+          return Math.round(ms / d) + 'd';
+        }
+        if (ms >= h) {
+          return Math.round(ms / h) + 'h';
+        }
+        if (ms >= m) {
+          return Math.round(ms / m) + 'm';
+        }
+        if (ms >= s) {
+          return Math.round(ms / s) + 's';
+        }
         return ms + 'ms';
       }
 
@@ -4248,7 +4505,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @api private
        */
 
-      function long(ms) {
+      function fmtLong(ms) {
         return plural(ms, d, 'day') || plural(ms, h, 'hour') || plural(ms, m, 'minute') || plural(ms, s, 'second') || ms + ' ms';
       }
 
@@ -4257,11 +4514,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
       function plural(ms, n, name) {
-        if (ms < n) return;
-        if (ms < n * 1.5) return Math.floor(ms / n) + ' ' + name;
+        if (ms < n) {
+          return;
+        }
+        if (ms < n * 1.5) {
+          return Math.floor(ms / n) + ' ' + name;
+        }
         return Math.ceil(ms / n) + ' ' + name + 's';
       }
-    }, {}], 32: [function (require, module, exports) {
+    }, {}], 33: [function (require, module, exports) {
       (function (global) {
         /**
          * JSON parse.
@@ -4294,7 +4555,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           }
         };
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, {}], 33: [function (require, module, exports) {
+    }, {}], 34: [function (require, module, exports) {
       /**
        * Compiles a querystring
        * Returns string representation of the object
@@ -4332,7 +4593,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
         return qry;
       };
-    }, {}], 34: [function (require, module, exports) {
+    }, {}], 35: [function (require, module, exports) {
       /**
        * Parses an URI
        *
@@ -4370,9 +4631,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         return uri;
       };
-    }, {}], 35: [function (require, module, exports) {
+    }, {}], 36: [function (require, module, exports) {
       (function (global) {
-        /*! https://mths.be/utf8js v2.0.0 by @mathias */
+        /*! https://mths.be/wtf8 v1.0.0 by @mathias */
         ;(function (root) {
 
           // Detect free variables `exports`
@@ -4438,11 +4699,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             return output;
           }
 
-          function checkScalarValue(codePoint) {
-            if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
-              throw Error('Lone surrogate U+' + codePoint.toString(16).toUpperCase() + ' is not a scalar value');
-            }
-          }
           /*--------------------------------------------------------------------------*/
 
           function createByte(codePoint, shift) {
@@ -4460,7 +4716,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               symbol = stringFromCharCode(codePoint >> 6 & 0x1F | 0xC0);
             } else if ((codePoint & 0xFFFF0000) == 0) {
               // 3-byte sequence
-              checkScalarValue(codePoint);
               symbol = stringFromCharCode(codePoint >> 12 & 0x0F | 0xE0);
               symbol += createByte(codePoint, 6);
             } else if ((codePoint & 0xFFE00000) == 0) {
@@ -4473,7 +4728,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             return symbol;
           }
 
-          function utf8encode(string) {
+          function wtf8encode(string) {
             var codePoints = ucs2decode(string);
             var length = codePoints.length;
             var index = -1;
@@ -4500,7 +4755,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               return continuationByte & 0x3F;
             }
 
-            // If we end up here, it’s not a continuation byte
+            // If we end up here, it’s not a continuation byte.
             throw Error('Invalid continuation byte');
           }
 
@@ -4519,7 +4774,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               return false;
             }
 
-            // Read first byte
+            // Read the first byte.
             byte1 = byteArray[byteIndex] & 0xFF;
             byteIndex++;
 
@@ -4545,7 +4800,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               byte3 = readContinuationByte();
               codePoint = (byte1 & 0x0F) << 12 | byte2 << 6 | byte3;
               if (codePoint >= 0x0800) {
-                checkScalarValue(codePoint);
                 return codePoint;
               } else {
                 throw Error('Invalid continuation byte');
@@ -4563,13 +4817,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               }
             }
 
-            throw Error('Invalid UTF-8 detected');
+            throw Error('Invalid WTF-8 detected');
           }
 
           var byteArray;
           var byteCount;
           var byteIndex;
-          function utf8decode(byteString) {
+          function wtf8decode(byteString) {
             byteArray = ucs2decode(byteString);
             byteCount = byteArray.length;
             byteIndex = 0;
@@ -4583,37 +4837,37 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
           /*--------------------------------------------------------------------------*/
 
-          var utf8 = {
-            'version': '2.0.0',
-            'encode': utf8encode,
-            'decode': utf8decode
+          var wtf8 = {
+            'version': '1.0.0',
+            'encode': wtf8encode,
+            'decode': wtf8decode
           };
 
           // Some AMD build optimizers, like r.js, check for specific condition patterns
           // like the following:
           if (typeof define == 'function' && _typeof(define.amd) == 'object' && define.amd) {
             define(function () {
-              return utf8;
+              return wtf8;
             });
           } else if (freeExports && !freeExports.nodeType) {
             if (freeModule) {
               // in Node.js or RingoJS v0.8.0+
-              freeModule.exports = utf8;
+              freeModule.exports = wtf8;
             } else {
               // in Narwhal or RingoJS v0.7.0-
               var object = {};
               var hasOwnProperty = object.hasOwnProperty;
-              for (var key in utf8) {
-                hasOwnProperty.call(utf8, key) && (freeExports[key] = utf8[key]);
+              for (var key in wtf8) {
+                hasOwnProperty.call(wtf8, key) && (freeExports[key] = wtf8[key]);
               }
             }
           } else {
             // in Rhino or a web browser
-            root.utf8 = utf8;
+            root.wtf8 = wtf8;
           }
         })(this);
       }).call(this, typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
-    }, {}], 36: [function (require, module, exports) {
+    }, {}], 37: [function (require, module, exports) {
       'use strict';
 
       var alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_'.split(''),
@@ -4682,5 +4936,5 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       yeast.encode = encode;
       yeast.decode = decode;
       module.exports = yeast;
-    }, {}] }, {}, [3])(3);
+    }, {}] }, {}, [4])(4);
 });

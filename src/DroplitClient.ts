@@ -29,6 +29,9 @@ export class DroplitClient extends EventEmitter {
         this.transport.on('socketError', (error: any) => {
             this.emit('socketError', error);
         });
+        this.transport.on('error', (error: any) => {
+            this.emit('error', error);
+        });
         this.transport.on('socketInfo', (info: any) => {
             this.emit('socketInfo', info);
         });
